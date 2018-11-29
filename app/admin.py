@@ -1,4 +1,5 @@
-from flask_admin import Admin
+from flask import g, url_for, redirect, request
+from flask_admin import Admin, AdminIndexView, expose
 from flask_admin.contrib.sqla import ModelView
 from flask_admin.contrib.fileadmin import FileAdmin
 from wtforms.fields import SelectField, PasswordField
@@ -6,7 +7,12 @@ from app import app, db
 from models import Entry, Tag, User
 
 
-class BaseModelView(ModelView):
+class AdminAuthentication(object):
+    def is_accessible(self):
+        return g.user.is_authenticated and g.user.is_admin()
+
+
+class BaseModelView(AdminAuthentication, ModelView):
     pass
 
 
@@ -16,7 +22,7 @@ class SlugModelView(BaseModelView):
         return super(SlugModelView, self).on_model_change(form, model, is_created)
 
 
-class EntryModelView(ModelView):
+class EntryModelView(BaseModelView):
     _status_choices = [(choice, label) for choice, label in [
         (Entry.STATUS_PUBLIC, 'Public'),
         (Entry.STATUS_DRAFT, 'Draft'),
@@ -42,7 +48,7 @@ class EntryModelView(ModelView):
     form_overrides = {'status': SelectField}
 
 
-class UserModelView(ModelView):
+class UserModelView(BaseModelView):
     column_filters = ('email', 'name', 'active', 'admin')
     column_list = ['email', 'name', 'active', 'admin', 'created_timestamp']
     column_searchable_list = ['name', 'email']
@@ -57,11 +63,19 @@ class UserModelView(ModelView):
         return super(UserModelView, self).on_model_change(form, model, is_created)
 
 
-class BlogFileAdmin(FileAdmin):
+class BlogFileAdmin(AdminAuthentication, FileAdmin):
     pass
 
 
-admin = Admin(app, 'Admin Site')
+class IndexView(AdminIndexView):
+    @expose('/')
+    def index(self):
+        if not (g.user.is_authenticated and g.user.is_admin()):
+            return redirect(url_for('login', next=request.path))
+        return self.render('admin/index.html')
+
+
+admin = Admin(app, 'Admin Site', index_view=IndexView())
 admin.add_view(EntryModelView(Entry, db.session))
 admin.add_view(SlugModelView(Tag, db.session))
 admin.add_view(UserModelView(User, db.session))
